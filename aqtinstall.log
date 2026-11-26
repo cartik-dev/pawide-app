@@ -1,0 +1,4 @@
+2026-11-26 06:05:36,228 - aqt.main - INFO - installer 140386479097664 aqtinstall(aqt) v3.3.0 on Python 3.12.16 [CPython Clang 23.1.3 ]
+2026-11-26 06:05:41,642 - aqt.main - INFO - installer 140271947663168 aqtinstall(aqt) v3.3.0 on Python 3.12.16 [CPython Clang 23.1.3 ]
+2026-11-26 06:07:16,770 - aqt.helper - DEBUG - helper 139901491791680 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_673/Updates.xml.sha256
+2026-11-26 06:07:46,063 - aqt.helper - DEBUG - helper 140193374840640 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_673/Updates.xml.sha256

@@ -36,7 +36,7 @@ private slots:
         SyntaxHighlighter h(&doc);
         h.setLanguage(QStringLiteral("python"));
         doc.setPlainText(QStringLiteral("def run(x):\n    s = \"hello\"  # note\n"));
-        QTest::qWait(0); // let the highlighter process the blocks
+        h.rehighlight(); // Qt defers highlighting to the event loop; force it for the test
         const QTextBlock l1 = doc.findBlockByNumber(0);
         QVERIFY(hasForeground(formats(l1), 0, 3, SyntaxHighlighter::keywordColor()));
         const QTextBlock l2 = doc.findBlockByNumber(1);
@@ -50,9 +50,9 @@ private slots:
         SyntaxHighlighter h(&doc);
         h.setLanguage(QStringLiteral("json"));
         doc.setPlainText(QStringLiteral("{\"n\": 42}"));
-        QTest::qWait(0);
+        h.rehighlight();
         const QTextBlock b = doc.findBlockByNumber(0);
-        QVERIFY(hasForeground(formats(b), 5, 2, SyntaxHighlighter::numberColor()));
+        QVERIFY(hasForeground(formats(b), 6, 2, SyntaxHighlighter::numberColor()));
     }
 
     void blockCommentSpansBlocks()
@@ -61,7 +61,7 @@ private slots:
         SyntaxHighlighter h(&doc);
         h.setLanguage(QStringLiteral("cpp"));
         doc.setPlainText(QStringLiteral("int x; /* start\nstill comment */ int y;\n"));
-        QTest::qWait(0);
+        h.rehighlight();
         const QTextBlock l1 = doc.findBlockByNumber(0);
         QVERIFY(hasForeground(formats(l1), 0, 3, SyntaxHighlighter::keywordColor()));
         QVERIFY(hasForeground(formats(l1), 7, 8, SyntaxHighlighter::commentColor()));

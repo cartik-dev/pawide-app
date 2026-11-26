@@ -20,11 +20,12 @@ QTextCharFormat fmt(const QColor &c, bool bold = false, bool italic = false)
     return f;
 }
 
-// \b-anchored keyword alternation.
+// \b-anchored keyword alternation. Space-separated words (in one or several
+// list entries) become | alternatives.
 QString kw(const QStringList &words)
 {
     QString joined = words.join(QLatin1Char('|'));
-    joined.replace(QLatin1Char(' '), QString());
+    joined.replace(QLatin1Char(' '), QLatin1Char('|'));
     return QStringLiteral("\\b(?:%1)\\b").arg(joined);
 }
 
