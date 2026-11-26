@@ -155,5 +155,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(TstFileUtils)
+QTEST_GUILESS_MAIN(TstFileUtils)
 #include "tst_fileutils.moc"

@@ -90,5 +90,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(TstDatabase)
+QTEST_GUILESS_MAIN(TstDatabase)
 #include "tst_database.moc"

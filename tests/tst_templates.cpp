@@ -97,5 +97,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(TstTemplates)
+QTEST_GUILESS_MAIN(TstTemplates)
 #include "tst_templates.moc"
