@@ -6,7 +6,7 @@ class QCheckBox;
 class QKeyEvent;
 class QLabel;
 class QLineEdit;
-class QPushButton;
+class QToolButton;
 
 namespace paw {
 
@@ -38,7 +38,7 @@ private:
     QLineEdit *m_find = nullptr;
     QLineEdit *m_replace = nullptr;
     QLabel *m_count = nullptr;
-    QPushButton *m_caseBtn = nullptr;
+    QToolButton *m_caseBtn = nullptr;
     QWidget *m_replaceRow = nullptr;
     bool m_caseSensitive = false;
     int m_matches = 0;

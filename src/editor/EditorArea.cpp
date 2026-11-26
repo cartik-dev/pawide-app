@@ -209,7 +209,8 @@ void EditorArea::closeAllWithoutAsking()
     // back to a single pane
     while (m_panes.size() > 1) {
         EditorPane *p = m_panes.takeLast();
-        m_split->removeWidget(p);
+        p->hide();
+        p->setParent(nullptr);
         p->deleteLater();
         emit paneCountChanged(1);
     }
@@ -293,7 +294,8 @@ void EditorArea::closeOtherPanes()
             p = m_panes.first();
         }
         m_panes.removeOne(p);
-        m_split->removeWidget(p);
+        p->hide();
+        p->setParent(nullptr);
         p->deleteLater();
     }
     setCurrentPane(m_current);
