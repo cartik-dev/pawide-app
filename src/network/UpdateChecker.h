@@ -27,3 +27,5 @@ private:
 
     QNetworkAccessManager *m_nam = nullptr;
 };
+
+} // namespace paw

@@ -47,3 +47,5 @@ private:
     QString m_blockStart;
     QString m_blockEnd;
 };
+
+} // namespace paw

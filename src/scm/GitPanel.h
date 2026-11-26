@@ -52,3 +52,5 @@ private:
     QPushButton *m_unstageBtn = nullptr;
     QPushButton *m_refreshBtn = nullptr;
 };
+
+} // namespace paw

@@ -46,3 +46,5 @@ private:
     QString m_cwd;
     QString m_lastEcho; // command echo to avoid duplicating the shell's own echo
 };
+
+} // namespace paw

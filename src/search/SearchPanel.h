@@ -36,3 +36,5 @@ private:
     QTreeWidget *m_results = nullptr;
     bool m_busy = false;
 };
+
+} // namespace paw

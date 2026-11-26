@@ -43,3 +43,5 @@ private:
     bool m_caseSensitive = false;
     int m_matches = 0;
 };
+
+} // namespace paw
