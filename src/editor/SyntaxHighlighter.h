@@ -2,6 +2,7 @@
 #include <QColor>
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
+#include <QTextCharFormat>
 
 class QTextDocument;
 
