@@ -4,6 +4,7 @@
 class QAction;
 class QLabel;
 class QPlainTextEdit;
+class QProcess;
 class QSplitter;
 class QStackedWidget;
 class QTabWidget;
@@ -15,6 +16,10 @@ class CodeEditor;
 class CommandPalette;
 class EditorArea;
 class ExplorerWidget;
+class GitPanel;
+class SearchPanel;
+class TerminalPanel;
+class UpdateChecker;
 class WelcomeWidget;
 
 class MainWindow : public QMainWindow {
@@ -48,12 +53,15 @@ private:
     void showView(const QString &id);
     void toggleSideBar();
     void togglePanel();
+    void toggleTerminal();
     void updateTitle();
     void updateStatus();
     void applySettings();
     void openFolderDialog(bool newWindow);
     void newProjectDialog();
     void openFileDialog();
+    void cloneRepository();
+    void checkForUpdates();
     void openRecent(const QString &path);
     void populateRecentMenu();
     void showCommandPalette();
@@ -73,9 +81,15 @@ private:
     QTabWidget *m_bottom = nullptr;
     QPlainTextEdit *m_output = nullptr;
     ExplorerWidget *m_explorer = nullptr;
+    SearchPanel *m_search = nullptr;
+    GitPanel *m_git = nullptr;
+    TerminalPanel *m_terminal = nullptr;
     EditorArea *m_editors = nullptr;
     WelcomeWidget *m_welcome = nullptr;
     CommandPalette *m_palette = nullptr;
+    UpdateChecker *m_updater = nullptr;
+    QString m_pendingPath; // search-result navigation: open, then go to the line
+    int m_pendingLine = 0;
     QLabel *m_stLang = nullptr, *m_stPos = nullptr, *m_stEnc = nullptr, *m_stEol = nullptr;
     QMenu *m_recentMenu = nullptr;
     QAction *m_wordWrapAction = nullptr;

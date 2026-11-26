@@ -1,329 +1,304 @@
 #include "EditorArea.h"
 
-#include "ui/Icons.h"
-#include "ui/Theme.h"
+#include "editor/EditorPane.h"
+#include "editor/FindWidget.h"
 
-#include <QDir>
-#include <QFileDialog>
-#include <QFileInfo>
-#include <QFutureWatcher>
+#include <QApplication>
 #include <QLabel>
-#include <QMessageBox>
-#include <QStackedWidget>
-#include <QTabBar>
-#include <QTabWidget>
+#include <QShortcut>
+#include <QSplitter>
+#include <QTextCursor>
 #include <QVBoxLayout>
-#include <QtConcurrent>
 
 namespace paw {
-
-static constexpr qint64 kMaxFileSize = 100LL * 1024 * 1024;
 
 EditorArea::EditorArea(QWidget *parent) : QWidget(parent)
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    m_stack = new QStackedWidget(this);
-    layout->addWidget(m_stack);
+    m_split = new QSplitter(Qt::Horizontal, this);
+    m_split->setChildrenCollapsible(false);
+    layout->addWidget(m_split);
 
-    // Page 0: watermark
-    auto *wm = new QWidget(m_stack);
-    auto *wl = new QVBoxLayout(wm);
-    wl->setAlignment(Qt::AlignCenter);
-    auto *logo = new QLabel(wm);
-    logo->setPixmap(icons::brandPixmap(QStringLiteral(":/branding/paw-logo.svg"), 120, devicePixelRatioF()));
-    logo->setAlignment(Qt::AlignCenter);
-    logo->setStyleSheet(QStringLiteral("QLabel { background: transparent; }"));
-    auto *hint = new QLabel(tr("Open a file from the Explorer to start editing"), wm);
-    hint->setObjectName(QStringLiteral("muted"));
-    hint->setAlignment(Qt::AlignCenter);
-    wl->addWidget(logo);
-    wl->addSpacing(12);
-    wl->addWidget(hint);
-    wm->setStyleSheet(QStringLiteral("QWidget { background: %1; }").arg(theme::bgEditor.name()));
-    m_stack->addWidget(wm);
+    auto *first = new EditorPane(this);
+    m_panes.push_back(first);
+    m_split->addWidget(first);
+    m_current = first;
 
-    // Page 1: tabs
-    m_tabs = new QTabWidget(m_stack);
-    m_tabs->setTabsClosable(true);
-    m_tabs->setMovable(true);
-    m_tabs->setDocumentMode(true);
-    m_tabs->setUsesScrollButtons(true);
-    m_stack->addWidget(m_tabs);
+    // Forward every pane's signals; MainWindow only reads the current editor.
+    for (EditorPane *p : std::as_const(m_panes)) {
+        connect(p, &EditorPane::currentEditorChanged, this, [this](CodeEditor *e) {
+            m_find->attach(e);
+            emit currentEditorChanged(e);
+        });
+        connect(p, &EditorPane::editorCountChanged, this, [this](int) {
+            int total = 0;
+            for (EditorPane *pane : std::as_const(m_panes))
+                total += pane->count();
+            emit editorCountChanged(total);
+        });
+    }
 
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int i) {
-        if (auto *e = qobject_cast<CodeEditor *>(m_tabs->widget(i)))
-            closeEditor(e);
+    // Focus tracking: the pane that contains the focused editor becomes current.
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
+        if (!now)
+            return;
+        for (EditorPane *p : std::as_const(m_panes)) {
+            if (now == p || p->isAncestorOf(now)) {
+                if (m_current != p) {
+                    m_current = p;
+                    emit currentEditorChanged(p->currentEditor());
+                }
+                break;
+            }
+        }
     });
-    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int) { emit currentEditorChanged(currentEditor()); });
-    updateStack();
+
+    connect(first, &EditorPane::paneFocused, this, [this](EditorPane *p) { setCurrentPane(p); });
+    connect(first, &EditorPane::fileOpened, this, &EditorArea::fileOpened);
+    connect(first, &EditorPane::message, this, &EditorArea::message);
+    connect(first, &EditorPane::anyModifiedChanged, this, &EditorArea::anyModifiedChanged);
+    connect(first, &EditorPane::editorStateChanged, this, &EditorArea::editorStateChanged);
+
+    // Find & Replace overlay
+    m_find = new FindWidget(this);
+    m_find->hide();
+    auto *scFind = new QShortcut(QKeySequence::Find, this);
+    scFind->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(scFind, &QShortcut::activated, this, [this] { showFind(false); });
+    auto *scReplace = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_H), this);
+    scReplace->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(scReplace, &QShortcut::activated, this, [this] { showFind(true); });
+}
+
+void EditorArea::resizeEvent(QResizeEvent *e)
+{
+    QWidget::resizeEvent(e);
+    positionFindBar();
+}
+
+void EditorArea::positionFindBar()
+{
+    if (!m_find)
+        return;
+    m_find->adjustSize();
+    m_find->move(qMax(8, width() - m_find->width() - 12), 6);
+}
+
+void EditorArea::showFind(bool withReplace)
+{
+    CodeEditor *e = currentEditor();
+    if (!e)
+        return;
+    const QString sel = e->textCursor().selectedText();
+    m_find->open(e, withReplace, sel);
+    positionFindBar();
+}
+
+EditorPane *EditorArea::paneOf(CodeEditor *e) const
+{
+    if (!e)
+        return nullptr;
+    for (EditorPane *p : std::as_const(m_panes))
+        if (p->editors().contains(e))
+            return p;
+    return nullptr;
+}
+
+void EditorArea::setCurrentPane(EditorPane *p)
+{
+    if (m_current == p)
+        return;
+    m_current = p;
+    emit currentEditorChanged(p ? p->currentEditor() : nullptr);
 }
 
 CodeEditor *EditorArea::currentEditor() const
 {
-    return qobject_cast<CodeEditor *>(m_tabs->currentWidget());
+    return m_current ? m_current->currentEditor() : nullptr;
 }
 
 QList<CodeEditor *> EditorArea::editors() const
 {
     QList<CodeEditor *> out;
-    for (int i = 0; i < m_tabs->count(); ++i)
-        if (auto *e = qobject_cast<CodeEditor *>(m_tabs->widget(i)))
-            out.push_back(e);
+    for (EditorPane *p : std::as_const(m_panes))
+        out.append(p->editors());
     return out;
 }
 
-int EditorArea::count() const { return m_tabs->count(); }
+int EditorArea::count() const
+{
+    int total = 0;
+    for (EditorPane *p : std::as_const(m_panes))
+        total += p->count();
+    return total;
+}
 
 CodeEditor *EditorArea::editorForPath(const QString &path) const
 {
-    const QString canon = QFileInfo(path).canonicalFilePath();
-    for (CodeEditor *e : editors()) {
-        if (!e->filePath().isEmpty() && (e->filePath() == path || QFileInfo(e->filePath()).canonicalFilePath() == canon))
+    for (EditorPane *p : std::as_const(m_panes))
+        if (CodeEditor *e = p->editorForPath(path))
             return e;
-    }
     return nullptr;
-}
-
-void EditorArea::updateStack()
-{
-    m_stack->setCurrentIndex(m_tabs->count() == 0 ? 0 : 1);
-}
-
-CodeEditor *EditorArea::addEditor(CodeEditor *e)
-{
-    const int idx = m_tabs->addTab(e, e->displayName());
-    connect(e->document(), &QTextDocument::modificationChanged, this, [this, e](bool) {
-        refreshTab(e);
-        emit anyModifiedChanged();
-    });
-    connect(e, &CodeEditor::fileInfoChanged, this, [this, e] {
-        refreshTab(e);
-        emit editorStateChanged();
-    });
-    connect(e, &CodeEditor::cursorInfoChanged, this, [this](int, int) { emit editorStateChanged(); });
-    m_tabs->setCurrentIndex(idx);
-    refreshTab(e);
-    updateStack();
-    emit editorCountChanged(m_tabs->count());
-    emit currentEditorChanged(currentEditor());
-    e->setFocus();
-    return e;
-}
-
-void EditorArea::refreshTab(CodeEditor *e)
-{
-    const int i = m_tabs->indexOf(e);
-    if (i < 0)
-        return;
-    m_tabs->setTabText(i, e->displayName() + (e->document()->isModified() ? QStringLiteral(" \u25CF") : QString()));
-    m_tabs->setTabToolTip(i, e->filePath().isEmpty() ? e->displayName() : QDir::toNativeSeparators(e->filePath()));
-}
-
-void EditorArea::activate(CodeEditor *e)
-{
-    const int i = m_tabs->indexOf(e);
-    if (i >= 0)
-        m_tabs->setCurrentIndex(i);
 }
 
 void EditorArea::openFile(const QString &path)
 {
-    if (CodeEditor *existing = editorForPath(path)) {
-        activate(existing);
-        emit fileOpened(path, true);
-        return;
-    }
-    if (m_loading.contains(path))
-        return;
-    const QFileInfo fi(path);
-    if (!fi.exists() || !fi.isFile()) {
-        QMessageBox::warning(this, tr("Open File"), tr("The file '%1' does not exist.").arg(fi.fileName()));
-        emit fileOpened(path, false);
-        return;
-    }
-    if (fi.size() > kMaxFileSize) {
-        QMessageBox::warning(this, tr("Open File"),
-                             tr("'%1' is larger than %2 MB and cannot be opened in the editor.")
-                                 .arg(fi.fileName())
-                                 .arg(kMaxFileSize / (1024 * 1024)));
-        emit fileOpened(path, false);
-        return;
-    }
-    m_loading.insert(path);
-    emit message(tr("Loading %1…").arg(fi.fileName()), 0);
-    auto *watcher = new QFutureWatcher<TextFile>(this);
-    connect(watcher, &QFutureWatcher<TextFile>::finished, this, [this, watcher, path] {
-        const TextFile tf = watcher->result();
-        watcher->deleteLater();
-        m_loading.remove(path);
-        emit message(QString(), 1);
-        if (!tf.ok) {
-            QMessageBox::warning(this, tr("Open File"), tf.error.isEmpty() ? tr("Cannot open the file.") : tf.error);
-            emit fileOpened(path, false);
-            return;
-        }
-        if (editorForPath(path)) { // opened meanwhile
-            emit fileOpened(path, true);
-            return;
-        }
-        auto *e = new CodeEditor(this);
-        e->setFilePath(path);
-        e->loadFrom(tf);
-        addEditor(e);
-        emit fileOpened(path, true);
-    });
-    watcher->setFuture(QtConcurrent::run([path] { return FileUtils::readText(path); }));
+    if (m_current)
+        m_current->openFile(path);
 }
 
 void EditorArea::newUntitled()
 {
-    auto *e = new CodeEditor(this);
+    if (!m_current)
+        return;
     ++m_untitledCounter;
-    addEditor(e);
-    const int i = m_tabs->indexOf(e);
-    m_tabs->setTabText(i, tr("Untitled-%1").arg(m_untitledCounter));
+    m_current->newUntitled(tr("Untitled-%1").arg(m_untitledCounter));
 }
 
 bool EditorArea::saveCurrent()
 {
-    CodeEditor *e = currentEditor();
-    if (!e)
-        return true;
-    if (e->isUntitled())
-        return saveCurrentAs();
-    QString err;
-    if (!e->save(&err)) {
-        QMessageBox::critical(this, tr("Save"), err);
-        return false;
-    }
-    emit message(tr("Saved %1").arg(e->displayName()), 3000);
-    return true;
+    return m_current ? m_current->saveCurrent() : true;
 }
 
 bool EditorArea::saveCurrentAs()
 {
-    CodeEditor *e = currentEditor();
-    if (!e)
-        return true;
-    const QString start = e->filePath();
-    const QString path = QFileDialog::getSaveFileName(this, tr("Save As"), start);
-    if (path.isEmpty())
-        return false;
-    QString err;
-    if (!e->saveAs(path, &err)) {
-        QMessageBox::critical(this, tr("Save As"), err);
-        return false;
-    }
-    return true;
-}
-
-bool EditorArea::askAndSave(CodeEditor *e)
-{
-    activate(e);
-    const QString name = e->displayName();
-    const auto r = QMessageBox::warning(this, tr("Unsaved Changes"),
-                                        tr("Do you want to save the changes you made to '%1'?\n\nYour changes will be lost if you don't save them.").arg(name),
-                                        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
-    if (r == QMessageBox::Cancel)
-        return false;
-    if (r == QMessageBox::Save)
-        return saveCurrent();
-    return true;
+    return m_current ? m_current->saveCurrentAs() : true;
 }
 
 bool EditorArea::closeEditor(CodeEditor *e)
 {
-    if (e->document()->isModified() && !askAndSave(e))
-        return false;
-    const int i = m_tabs->indexOf(e);
-    if (i >= 0) {
-        m_tabs->removeTab(i);
-        e->deleteLater();
-    }
-    updateStack();
-    emit editorCountChanged(m_tabs->count());
-    emit currentEditorChanged(currentEditor());
-    emit anyModifiedChanged();
-    return true;
+    EditorPane *p = paneOf(e);
+    return p ? p->closeEditor(e) : true;
 }
 
 bool EditorArea::closeCurrent()
 {
-    CodeEditor *e = currentEditor();
-    return e ? closeEditor(e) : true;
+    return m_current ? m_current->closeCurrent() : true;
 }
 
 bool EditorArea::hasUnsavedChanges() const
 {
-    for (CodeEditor *e : editors())
-        if (e->document()->isModified())
+    for (EditorPane *p : std::as_const(m_panes))
+        if (p->hasUnsavedChanges())
             return true;
     return false;
 }
 
 bool EditorArea::saveAll()
 {
-    for (CodeEditor *e : editors()) {
-        if (!e->document()->isModified())
-            continue;
-        activate(e);
-        if (!saveCurrent())
+    for (EditorPane *p : std::as_const(m_panes))
+        if (!p->saveAll())
             return false;
-    }
     return true;
 }
 
 bool EditorArea::maybeSaveAll()
 {
-    for (CodeEditor *e : editors()) {
-        if (e->document()->isModified() && !askAndSave(e))
-            return false;
-    }
+    for (EditorPane *p : std::as_const(m_panes))
+        for (CodeEditor *e : p->editors())
+            if (e->document()->isModified() && !p->maybeSave(e))
+                return false;
     return true;
 }
 
 void EditorArea::closeAllWithoutAsking()
 {
-    for (CodeEditor *e : editors()) {
-        const int i = m_tabs->indexOf(e);
-        m_tabs->removeTab(i);
-        e->deleteLater();
+    for (EditorPane *p : std::as_const(m_panes))
+        p->closeAllWithoutAsking();
+    // back to a single pane
+    while (m_panes.size() > 1) {
+        EditorPane *p = m_panes.takeLast();
+        m_split->removeWidget(p);
+        p->deleteLater();
+        emit paneCountChanged(1);
     }
-    updateStack();
-    emit editorCountChanged(0);
-    emit currentEditorChanged(nullptr);
-    emit anyModifiedChanged();
+    if (m_current)
+        emit currentEditorChanged(m_current->currentEditor());
 }
 
 void EditorArea::closeEditorsUnder(const QString &path)
 {
-    const QString prefix = path + QLatin1Char('/');
-    for (CodeEditor *e : editors()) {
-        const QString p = e->filePath();
-        if (p == path || p.startsWith(prefix)) {
-            e->document()->setModified(false); // the file is gone; nothing to save to
-            closeEditor(e);
-        }
-    }
+    for (EditorPane *p : std::as_const(m_panes))
+        p->closeEditorsUnder(path);
 }
 
 void EditorArea::pathRenamed(const QString &oldPath, const QString &newPath)
 {
-    const QString prefix = oldPath + QLatin1Char('/');
-    for (CodeEditor *e : editors()) {
-        const QString p = e->filePath();
-        if (p == oldPath)
-            e->setFilePath(newPath);
-        else if (p.startsWith(prefix))
-            e->setFilePath(newPath + QLatin1Char('/') + p.mid(prefix.size()));
-    }
+    for (EditorPane *p : std::as_const(m_panes))
+        p->pathRenamed(oldPath, newPath);
 }
 
 void EditorArea::applySettings()
 {
-    for (CodeEditor *e : editors())
-        e->applySettings();
+    for (EditorPane *p : std::as_const(m_panes))
+        p->applySettings();
+}
+
+void EditorArea::activate(CodeEditor *e)
+{
+    if (EditorPane *p = paneOf(e)) {
+        setCurrentPane(p);
+        p->activate(e);
+    }
+}
+
+void EditorArea::splitRight()
+{
+    if (m_panes.size() >= 2)
+        return;
+    auto *pane = new EditorPane(this);
+    m_panes.push_back(pane);
+    m_split->addWidget(pane);
+    m_split->setSizes({(width() / 2), (width() / 2)});
+
+    connect(pane, &EditorPane::currentEditorChanged, this, [this](CodeEditor *e) {
+        m_find->attach(e);
+        if (sender() == m_current)
+            emit currentEditorChanged(e);
+    });
+    connect(pane, &EditorPane::paneFocused, this, [this](EditorPane *p) { setCurrentPane(p); });
+    connect(pane, &EditorPane::fileOpened, this, &EditorArea::fileOpened);
+    connect(pane, &EditorPane::message, this, &EditorArea::message);
+    connect(pane, &EditorPane::anyModifiedChanged, this, &EditorArea::anyModifiedChanged);
+    connect(pane, &EditorPane::editorStateChanged, this, &EditorArea::editorStateChanged);
+    connect(pane, &EditorPane::editorCountChanged, this, [this](int) { emit editorCountChanged(count()); });
+
+    setCurrentPane(pane);
+    if (CodeEditor *e = m_panes.first()->currentEditor()) {
+        if (!e->isUntitled())
+            pane->openFile(e->filePath());
+        else
+            pane->newUntitled(tr("Untitled"));
+    }
+    emit paneCountChanged(m_panes.size());
+}
+
+void EditorArea::closeOtherPanes()
+{
+    if (m_panes.size() <= 1)
+        return;
+    // Keep the current pane; ask to save the others.
+    for (EditorPane *p : std::as_const(m_panes)) {
+        if (p == m_current)
+            continue;
+        for (CodeEditor *e : p->editors()) {
+            if (e->document()->isModified() && !p->closeEditor(e))
+                return; // user cancelled
+        }
+    }
+    while (m_panes.size() > 1) {
+        EditorPane *p = m_panes.constLast();
+        if (p == m_current) {
+            p = m_panes.first();
+        }
+        m_panes.removeOne(p);
+        m_split->removeWidget(p);
+        p->deleteLater();
+    }
+    setCurrentPane(m_current);
+    emit paneCountChanged(1);
+    emit editorCountChanged(count());
 }
 
 } // namespace paw

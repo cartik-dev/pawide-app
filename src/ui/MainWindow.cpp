@@ -6,7 +6,11 @@
 #include "editor/CodeEditor.h"
 #include "editor/EditorArea.h"
 #include "explorer/ExplorerWidget.h"
+#include "network/UpdateChecker.h"
+#include "scm/GitPanel.h"
+#include "search/SearchPanel.h"
 #include "settings/Settings.h"
+#include "terminal/TerminalPanel.h"
 #include "ui/ActivityBar.h"
 #include "ui/CommandPalette.h"
 #include "ui/Icons.h"
@@ -28,10 +32,12 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -101,6 +107,10 @@ void MainWindow::buildUi()
     sl->addWidget(m_side);
     m_explorer = new ExplorerWidget(m_side);
     m_side->addWidget(m_explorer); // index 0
+    m_search = new SearchPanel(m_side);
+    m_side->addWidget(m_search); // index 1
+    m_git = new GitPanel(m_side);
+    m_side->addWidget(m_git); // index 2
     auto placeholder = [this](const QString &title, const QString &text) {
         auto *w = new QWidget(m_side);
         auto *l = new QVBoxLayout(w);
@@ -115,8 +125,6 @@ void MainWindow::buildUi()
         l->addStretch(1);
         m_side->addWidget(w);
     };
-    placeholder(tr("Search"), tr("Project-wide search is not available yet. It is planned for the next development phase."));
-    placeholder(tr("Source Control"), tr("Git integration is not available yet. It is planned for a later development phase."));
     placeholder(tr("Run and Debug"), tr("Running and debugging are not available yet."));
     placeholder(tr("Extensions"), tr("The extension system and marketplace are not available yet. They are planned for a later development phase."));
 
@@ -139,6 +147,8 @@ void MainWindow::buildUi()
     m_output->setReadOnly(true);
     m_output->setMaximumBlockCount(5000);
     m_bottom->addTab(m_output, tr("Output"));
+    m_terminal = new TerminalPanel(m_bottom);
+    m_bottom->addTab(m_terminal, tr("Terminal"));
     m_bottom->hide();
 
     m_vsplit = new QSplitter(Qt::Vertical, root);
@@ -172,6 +182,18 @@ void MainWindow::buildUi()
 
     m_palette = new CommandPalette(this);
 
+    m_updater = new UpdateChecker(this);
+    connect(m_updater, &UpdateChecker::updateAvailable, this, [this](const QString &v, const QString &url) {
+        const auto r = QMessageBox::question(this, tr("Update Available"),
+                                             tr("Paw IDE %1 is available.\n\nOpen the releases page to download it?").arg(v));
+        if (r == QMessageBox::Yes)
+            QDesktopServices::openUrl(QUrl(url));
+    });
+    connect(m_updater, &UpdateChecker::failed, this, [this](const QString &err) {
+        QMessageBox::warning(this, tr("Check for Updates"), tr("The update check failed:\n%1").arg(err));
+    });
+    QTimer::singleShot(4000, this, [this] { m_updater->check(true); }); // silent on startup
+
     // Wiring
     connect(m_activity, &ActivityBar::viewSelected, this, &MainWindow::showView);
     connect(m_activity, &ActivityBar::activeViewClicked, this, [this](const QString &) { toggleSideBar(); });
@@ -192,6 +214,25 @@ void MainWindow::buildUi()
     connect(m_explorer, &ExplorerWidget::pathRenamed, m_editors, &EditorArea::pathRenamed);
     connect(m_explorer, &ExplorerWidget::pathDeleted, m_editors, &EditorArea::closeEditorsUnder);
     connect(m_explorer, &ExplorerWidget::logMessage, this, &MainWindow::log);
+
+    connect(m_search, &SearchPanel::resultActivated, this, [this](const QString &path, int line) {
+        m_pendingPath = path;
+        m_pendingLine = line;
+        openFile(path);
+    });
+    connect(m_search, &SearchPanel::logMessage, this, &MainWindow::log);
+    connect(m_git, &GitPanel::logMessage, this, &MainWindow::log);
+    connect(m_git, &GitPanel::fileActivated, this, &MainWindow::openFile);
+    connect(m_editors, &EditorArea::fileOpened, this, [this](const QString &path, bool ok) {
+        if (!ok)
+            return;
+        if (m_pendingPath == path && m_pendingLine > 0) {
+            if (CodeEditor *e = m_editors->editorForPath(path))
+                e->goToLine(m_pendingLine);
+            m_pendingLine = 0;
+            m_pendingPath.clear();
+        }
+    });
 
     connect(m_editors, &EditorArea::currentEditorChanged, this, [this](CodeEditor *) {
         updateStatus();
@@ -230,6 +271,7 @@ void MainWindow::buildMenus()
     addAction(file, tr("Open File…"), QKeySequence::Open, [this] { openFileDialog(); });
     addAction(file, tr("Open Folder…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), [this] { openFolderDialog(false); });
     addAction(file, tr("Open Folder in New Window…"), QKeySequence(), [this] { openFolderDialog(true); });
+    addAction(file, tr("Clone Repository…"), QKeySequence(), [this] { cloneRepository(); });
     m_recentMenu = file->addMenu(tr("Open Recent"));
     connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecentMenu);
     addAction(file, tr("Close Folder"), QKeySequence(), [this] { closeProject(); });
@@ -250,6 +292,9 @@ void MainWindow::buildMenus()
     addAction(edit, tr("Cut"), QKeySequence::Cut, [=] { if (auto *e = current()) e->cut(); });
     addAction(edit, tr("Copy"), QKeySequence::Copy, [=] { if (auto *e = current()) e->copy(); });
     addAction(edit, tr("Paste"), QKeySequence::Paste, [=] { if (auto *e = current()) e->paste(); });
+    edit->addSeparator();
+    addAction(edit, tr("Find"), QKeySequence::Find, [this] { m_central->setCurrentWidget(m_editors); m_editors->showFind(false); });
+    addAction(edit, tr("Replace"), QKeySequence(Qt::CTRL | Qt::Key_H), [this] { m_central->setCurrentWidget(m_editors); m_editors->showFind(true); });
 
     // Selection
     QMenu *sel = menuBar()->addMenu(tr("&Selection"));
@@ -269,6 +314,10 @@ void MainWindow::buildMenus()
     view->addSeparator();
     addAction(view, tr("Toggle Side Bar"), QKeySequence(Qt::CTRL | Qt::Key_B), [this] { toggleSideBar(); });
     addAction(view, tr("Toggle Panel"), QKeySequence(Qt::CTRL | Qt::Key_J), [this] { togglePanel(); });
+    addAction(view, tr("Toggle Terminal"), QKeySequence(Qt::CTRL | Qt::Key_Backtick), [this] { toggleTerminal(); });
+    view->addSeparator();
+    addAction(view, tr("Split Editor"), QKeySequence(Qt::CTRL | Qt::Key_Backslash), [this] { m_editors->splitRight(); });
+    addAction(view, tr("Close Other Panes"), QKeySequence(), [this] { m_editors->closeOtherPanes(); });
     view->addSeparator();
     m_wordWrapAction = addAction(view, tr("Word Wrap"), QKeySequence(Qt::ALT | Qt::Key_Z),
                                  [] { Settings::instance().setWordWrap(!Settings::instance().wordWrap()); });
@@ -290,6 +339,7 @@ void MainWindow::buildMenus()
     addAction(help, tr("Documentation"), QKeySequence(), [] { QDesktopServices::openUrl(QUrl(repositoryUrl())); });
     addAction(help, tr("Settings"), QKeySequence(Qt::CTRL | Qt::Key_Comma), [this] { SettingsDialog(this).exec(); });
     help->addSeparator();
+    addAction(help, tr("Check for Updates…"), QKeySequence(), [this] { checkForUpdates(); });
     addAction(help, tr("About Paw IDE"), QKeySequence(), [this] { showAbout(); });
 
     // Shortcuts of window-level actions must also work when the menu is not open.
@@ -323,6 +373,9 @@ bool MainWindow::openProject(const QString &path)
     m_editors->closeAllWithoutAsking();
     m_project = canonical;
     m_explorer->setRootPath(canonical);
+    m_search->setRootPath(canonical);
+    m_git->setRepository(canonical);
+    m_terminal->setWorkingDirectory(canonical);
     appDatabase().addRecentProject(canonical);
     m_central->setCurrentWidget(m_editors);
     showView(QStringLiteral("explorer"));
@@ -340,6 +393,8 @@ bool MainWindow::closeProject()
     m_editors->closeAllWithoutAsking();
     m_project.clear();
     m_explorer->setRootPath(QString());
+    m_search->setRootPath(QString());
+    m_git->setRepository(QString());
     m_central->setCurrentWidget(m_welcome);
     updateTitle();
     return true;
@@ -437,6 +492,61 @@ void MainWindow::togglePanel()
     m_bottom->setVisible(!m_bottom->isVisible());
     if (m_bottom->isVisible())
         m_vsplit->setSizes({height() - 260, 220});
+}
+
+void MainWindow::toggleTerminal()
+{
+    if (m_bottom->isVisible() && m_bottom->currentWidget() == m_terminal) {
+        m_bottom->hide();
+        return;
+    }
+    m_bottom->show();
+    m_bottom->setCurrentWidget(m_terminal);
+    m_vsplit->setSizes({height() - 260, 220});
+    m_terminal->focusInput();
+}
+
+void MainWindow::cloneRepository()
+{
+    bool ok = false;
+    const QString url = QInputDialog::getText(this, tr("Clone Repository"),
+                                              tr("Repository URL:"), QLineEdit::Normal, QString(), &ok);
+    if (!ok || url.trimmed().isEmpty())
+        return;
+    const QString parent = QFileDialog::getExistingDirectory(this, tr("Destination Folder"), QDir::homePath());
+    if (parent.isEmpty())
+        return;
+    QString name = url.trimmed();
+    name.remove(QLatin1String("https://")).remove(QLatin1String("http://")).remove(QLatin1String(".git"));
+    name = name.section(QLatin1Char('/'), -1);
+    if (name.isEmpty())
+        name = QStringLiteral("repository");
+    const QString dest = QDir(parent).filePath(name);
+    if (QFileInfo::exists(dest)) {
+        QMessageBox::warning(this, tr("Clone Repository"),
+                             tr("The folder '%1' already exists.").arg(QDir::toNativeSeparators(dest)));
+        return;
+    }
+    m_bottom->show();
+    m_bottom->setCurrentWidget(m_output);
+    m_vsplit->setSizes({height() - 260, 220});
+    GitPanel::cloneInto(url.trimmed(), dest, this,
+                        [this](const QString &line) { log(line); },
+                        [this, dest](bool success) {
+                            if (!success)
+                                return;
+                            const auto r = QMessageBox::question(
+                                this, tr("Clone Repository"),
+                                tr("Cloned into '%1'.\n\nOpen the folder now?").arg(QDir::toNativeSeparators(dest)));
+                            if (r == QMessageBox::Yes)
+                                openProject(dest);
+                        });
+}
+
+void MainWindow::checkForUpdates()
+{
+    statusBar()->showMessage(tr("Checking for updates…"), 3000);
+    m_updater->check(false);
 }
 
 void MainWindow::log(const QString &line)

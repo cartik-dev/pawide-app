@@ -1,16 +1,17 @@
 #pragma once
 #include "editor/CodeEditor.h"
 
-#include <QSet>
 #include <QWidget>
 
-class QLabel;
-class QStackedWidget;
-class QTabWidget;
+class QSplitter;
 
 namespace paw {
 
-// Tabbed editor area with an empty-state watermark. Files are loaded off the GUI thread.
+class EditorPane;
+class FindWidget;
+
+// Arranges one or more EditorPanes (Ctrl+F / Ctrl+H find bar overlay and
+// "Split Editor" live here). Files are opened in the focused pane.
 class EditorArea : public QWidget {
     Q_OBJECT
 public:
@@ -20,6 +21,7 @@ public:
     CodeEditor *editorForPath(const QString &path) const;
     QList<CodeEditor *> editors() const;
     int count() const;
+    int paneCount() const { return m_panes.size(); }
 
     void openFile(const QString &path);
     void newUntitled();
@@ -36,6 +38,14 @@ public:
     void applySettings();
     void activate(CodeEditor *e);
 
+    // Split view
+    void splitRight();                     // open a second pane with the current file
+    void closeOtherPanes();                // back to a single pane (asks to save)
+    bool isSplit() const { return m_panes.size() > 1; }
+
+    // Find & Replace overlay (Ctrl+F / Ctrl+H shortcuts live in the area)
+    void showFind(bool withReplace);
+
 signals:
     void currentEditorChanged(CodeEditor *editor); // may be nullptr
     void editorCountChanged(int count);
@@ -43,16 +53,20 @@ signals:
     void message(const QString &text, int timeoutMs);
     void anyModifiedChanged();
     void editorStateChanged(); // cursor position, encoding, line ending or file name changed
+    void paneCountChanged(int count);
+
+protected:
+    void resizeEvent(QResizeEvent *e) override;
 
 private:
-    CodeEditor *addEditor(CodeEditor *e);
-    void refreshTab(CodeEditor *e);
-    void updateStack();
-    bool askAndSave(CodeEditor *e);
+    EditorPane *paneOf(CodeEditor *e) const;
+    void setCurrentPane(EditorPane *p);
+    void positionFindBar();
 
-    QTabWidget *m_tabs;
-    QStackedWidget *m_stack;
-    QSet<QString> m_loading;
+    QSplitter *m_split;
+    QList<EditorPane *> m_panes;
+    EditorPane *m_current = nullptr;
+    FindWidget *m_find = nullptr;
     int m_untitledCounter = 0;
 };
 

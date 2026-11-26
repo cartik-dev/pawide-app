@@ -7,6 +7,7 @@
 namespace paw {
 
 class LineNumberArea;
+class SyntaxHighlighter;
 
 class CodeEditor : public QPlainTextEdit {
     Q_OBJECT
@@ -33,6 +34,9 @@ public:
     int currentLine() const { return textCursor().blockNumber() + 1; }
     int currentColumn() const { return textCursor().positionInBlock() + 1; }
 
+    // Find & Replace support: the search bar paints its matches on top of the editor.
+    void setSearchSelections(const QList<QTextEdit::ExtraSelection> &s) { m_searchSels = s; updateExtraSelections(); }
+
     int lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent *event);
 
@@ -55,8 +59,11 @@ private:
     bool handleAutoPair(QKeyEvent *e);
     void insertNewlineWithIndent();
     int matchingBracket(int pos) const;
+    void updateHighlighter();
 
     LineNumberArea *m_lineArea;
+    SyntaxHighlighter *m_highlighter = nullptr;
+    QList<QTextEdit::ExtraSelection> m_searchSels;
     QString m_path;
     QString m_encoding = QStringLiteral("UTF-8");
     LineEnding m_eol = LineEnding::LF;

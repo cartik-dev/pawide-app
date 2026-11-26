@@ -21,18 +21,21 @@ Open source under the [MIT License](LICENSE). The Paw IDE name and the brand fil
 | Safe file IO: UTF-8, UTF-8 BOM, UTF-16, Latin-1 fallback, CRLF/LF/CR preserved, atomic saves, binary files refused, async loading | done |
 | Unsaved changes are never dropped on close / folder switch | done |
 | Settings dialog (editor, explorer, about) stored in SQLite | partial |
-| Syntax highlighting (Tree-sitter) – Phase 2 | not started |
-| Split editor, find & replace, project search – Phase 2 | not started |
-| Terminal, Git integration, "Clone Repository" – Phase 3 | not started |
+| Syntax highlighting for 30+ languages (keywords, strings, numbers, comments, block-comment state, preprocessor) | done |
+| Find & Replace in the editor (`Ctrl+F` / `Ctrl+H`), match highlighting, Replace All | done |
+| Split editor (`Ctrl+\`), find bar works in both panes | done |
+| Project-wide search (Search side panel, Match Case / Whole Word, click opens the file at the line) | done |
+| Integrated terminal (bottom panel, PowerShell / CMD / bash, ``Ctrl+` ``) | done |
+| Git integration: status, branch, stage / unstage, commit, `File > Clone Repository…` | done |
+| Auto updater: checks GitHub Releases on startup and via `Help > Check for Updates…` | done |
 | Plugins, SDK, marketplace – Phase 4 | not started |
-| Asset manager, auto updater – Phase 5 | not started |
 | Windows installer, release pipeline – Phase 6 | done – v1.0.0 released, CI builds `PawIDE-Setup-x64.exe` and publishes it to [GitHub Releases](https://github.com/cartik-dev/pawide-app/releases) |
 
-Side-bar pages for Search, Source Control, Run and Extensions are explicit placeholders.
+Side-bar pages for Run and Extensions are explicit placeholders.
 
 ## Build
 
-Requirements: CMake ≥ 3.21, a C++20 compiler, Qt ≥ 6.4 (Widgets, Gui, Sql, Svg, Concurrent, Test).
+Requirements: CMake ≥ 3.21, a C++20 compiler, Qt ≥ 6.4 (Widgets, Gui, Sql, Svg, Concurrent, Network, Test).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -45,9 +48,9 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 
 ## Tests
 
-`ctest` runs five QtTest executables (file IO / encodings / line endings, project templates,
-database, file operations, and an offscreen GUI test that opens folders, lists hidden and nested
-files, edits and saves files, and checks the unsaved-changes protection).
+`ctest` runs six QtTest executables (file IO / encodings / line endings, project templates,
+database, file operations, syntax highlighting, and an offscreen GUI test that opens folders, lists
+hidden and nested files, edits and saves files, and checks the unsaved-changes protection).
 
 ## Layout
 
@@ -59,7 +62,11 @@ src/database      SQLite storage (settings, recent projects)
 src/settings      typed settings
 src/project       project templates
 src/explorer      file explorer + file operations
-src/editor        code editor + tabbed editor area
+src/editor        code editor, tabbed panes, split view, find bar, syntax highlighting
+src/search        project-wide search panel
+src/terminal      integrated terminal (PowerShell / CMD / bash)
+src/scm           Git panel (status, stage, commit, clone)
+src/network       auto updater (GitHub Releases)
 src/ui            main window, welcome screen, dialogs, theme
 tests/            unit and GUI tests
 tools/            developer screenshot tool

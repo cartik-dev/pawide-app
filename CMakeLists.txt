@@ -9,7 +9,7 @@ set(CMAKE_AUTORCC ON)
 
 option(PAWIDE_BUILD_TESTS "Build unit tests" ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Sql Svg Concurrent)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Sql Svg Concurrent Network)
 if(PAWIDE_BUILD_TESTS)
     find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
 endif()
@@ -23,7 +23,7 @@ add_library(pawide_core STATIC ${PAWIDE_SOURCES} resources/resources.qrc)
 target_include_directories(pawide_core PUBLIC src)
 target_compile_definitions(pawide_core PUBLIC PAWIDE_VERSION_STR="${PROJECT_VERSION}")
 target_link_libraries(pawide_core PUBLIC
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Svg Qt6::Concurrent)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Svg Qt6::Concurrent Qt6::Network)
 if(MSVC)
     target_compile_options(pawide_core PUBLIC /W4 /utf-8 /permissive-)
 else()

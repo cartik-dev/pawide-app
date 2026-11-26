@@ -1,5 +1,6 @@
 #include "CodeEditor.h"
 
+#include "editor/SyntaxHighlighter.h"
 #include "settings/Settings.h"
 #include "ui/Theme.h"
 
@@ -21,13 +22,21 @@ CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent), m_lineArea(new
     connect(this, &QPlainTextEdit::cursorPositionChanged, this,
             [this] { emit cursorInfoChanged(currentLine(), currentColumn()); });
     applySettings();
+    m_highlighter = new SyntaxHighlighter(document());
     updateLineNumberAreaWidth();
     updateExtraSelections();
+}
+
+void CodeEditor::updateHighlighter()
+{
+    if (m_highlighter)
+        m_highlighter->setLanguage(language().id);
 }
 
 void CodeEditor::setFilePath(const QString &p)
 {
     m_path = p;
+    updateHighlighter();
     emit fileInfoChanged();
 }
 
@@ -80,6 +89,7 @@ bool CodeEditor::saveAs(const QString &path, QString *error)
     m_path = path;
     m_mixedEol = false;
     document()->setModified(false);
+    updateHighlighter();
     emit fileInfoChanged();
     return true;
 }
@@ -217,6 +227,7 @@ void CodeEditor::updateExtraSelections()
         line.cursor.clearSelection();
         sels.append(line);
     }
+    sels.append(m_searchSels);
     const int pos = textCursor().position();
     for (int p : {pos, pos - 1}) {
         const int m = matchingBracket(p);
