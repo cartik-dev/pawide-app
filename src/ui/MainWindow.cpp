@@ -314,7 +314,7 @@ void MainWindow::buildMenus()
     view->addSeparator();
     addAction(view, tr("Toggle Side Bar"), QKeySequence(Qt::CTRL | Qt::Key_B), [this] { toggleSideBar(); });
     addAction(view, tr("Toggle Panel"), QKeySequence(Qt::CTRL | Qt::Key_J), [this] { togglePanel(); });
-    addAction(view, tr("Toggle Terminal"), QKeySequence(Qt::CTRL | Qt::Key_Backtick), [this] { toggleTerminal(); });
+    addAction(view, tr("Toggle Terminal"), QKeySequence(Qt::CTRL | Qt::Key_QuoteLeft), [this] { toggleTerminal(); });
     view->addSeparator();
     addAction(view, tr("Split Editor"), QKeySequence(Qt::CTRL | Qt::Key_Backslash), [this] { m_editors->splitRight(); });
     addAction(view, tr("Close Other Panes"), QKeySequence(), [this] { m_editors->closeOtherPanes(); });
