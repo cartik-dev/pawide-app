@@ -1,0 +1,54 @@
+Test project D:/a/pawide-app/pawide-app/build
+    Start 1: tst_fileutils
+1/5 Test #1: tst_fileutils ....................   Passed    0.08 sec
+    Start 2: tst_templates
+2/5 Test #2: tst_templates ....................   Passed    0.10 sec
+    Start 3: tst_database
+3/5 Test #3: tst_database .....................***Exception: SegFault  0.23 sec
+A crash occurred in D:\a\pawide-app\pawide-app\build\tests\tst_database.exe.
+While testing settingsRoundTrip
+Function time: 4ms Total time: 5ms
+
+Exception address: 0x00007FFD68848C91
+Exception code   : 0xc0000005
+Nearby symbol    : QSqlDatabase::open
+
+Stack:
+#  1: QTest::toString() - 0x00007FFD64C2C780
+#  2: UnhandledExceptionFilter() - 0x00007FFD9AA45320
+#  3: strncpy() - 0x00007FFD9D628610
+#  4: _C_specific_handler() - 0x00007FFD9D5E1110
+#  5: _chkstk() - 0x00007FFD9D6268F0
+#  6: RtlLocateExtendedFeature() - 0x00007FFD9D4D24A0
+#  7: KiUserExceptionDispatcher() - 0x00007FFD9D6262A0
+#  8: QSqlDatabase::open() - 0x00007FFD68848C60
+#  9: Unable to obtain symbol
+# 10: Unable to obtain symbol
+# 11: Unable to obtain symbol
+# 12: QMetaMethodInvoker::invokeImpl() - 0x00007FFD5FF88FB0
+# 13: QMetaMethod::invokeImpl() - 0x00007FFD5FF88DD0
+# 14: QTest::ignoreMessage() - 0x00007FFD64C23CC0
+# 15: QTest::ignoreMessage() - 0x00007FFD64C23CC0
+# 16: QTest::ignoreMessage() - 0x00007FFD64C23CC0
+# 17: QTest::qRun() - 0x00007FFD64C29F80
+# 18: QTest::qExec() - 0x00007FFD64C26CB0
+# 19: Unable to obtain symbol
+# 20: Unable to obtain symbol
+# 21: BaseThreadInitThunk() - 0x00007FFD9C75DD20
+# 22: RtlUserThreadStart() - 0x00007FFD9D4FF290
+
+
+    Start 4: tst_fileops
+4/5 Test #4: tst_fileops ......................   Passed    0.05 sec
+    Start 5: tst_mainwindow
+5/5 Test #5: tst_mainwindow ...................***Failed   18.86 sec
+
+
+60% tests passed, 2 tests failed out of 5
+
+Total Test time (real) =  19.35 sec
+
+The following tests FAILED:
+	  3 - tst_database (SEGFAULT)
+	  5 - tst_mainwindow (Failed)
+Errors while running CTest
