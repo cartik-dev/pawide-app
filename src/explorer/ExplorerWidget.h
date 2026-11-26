@@ -10,6 +10,8 @@ class QTreeView;
 
 namespace paw {
 
+class HiddenFilterProxy;
+
 // File explorer for the current project folder (shows hidden files by default).
 class ExplorerWidget : public QWidget {
     Q_OBJECT
@@ -23,6 +25,12 @@ public:
 
     QTreeView *view() const { return m_view; }
     QFileSystemModel *model() const { return m_model; }
+
+    // Names of the direct children currently visible under the hidden-file
+    // filter, and expanding a path through the view's proxy model. Used by
+    // tests and available to future views built on the explorer.
+    QStringList childNames(const QString &dir) const;
+    void expandPath(const QString &path);
 
     // Operations (also reachable from the context menu); return false on failure.
     bool createFileIn(const QString &dir, const QString &name);
@@ -52,6 +60,7 @@ private:
 
     QString m_root;
     QFileSystemModel *m_model;
+    HiddenFilterProxy *m_proxy;
     QTreeView *m_view;
     QStackedWidget *m_stack;
     QLabel *m_title;

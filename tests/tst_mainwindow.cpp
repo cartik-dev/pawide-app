@@ -12,11 +12,9 @@
 #include <QAbstractButton>
 #include <QDir>
 #include <QFile>
-#include <QFileSystemModel>
 #include <QMessageBox>
 #include <QTemporaryDir>
 #include <QTimer>
-#include <QTreeView>
 #include <QtTest>
 
 using namespace paw;
@@ -50,15 +48,6 @@ static void clickMessageBoxLater(QMessageBox::StandardButton which)
             }
         }
     });
-}
-
-static QStringList visibleNames(ExplorerWidget *ex, const QModelIndex &parent)
-{
-    QStringList names;
-    auto *m = ex->model();
-    for (int i = 0; i < m->rowCount(parent); ++i)
-        names << m->fileName(m->index(i, 0, parent));
-    return names;
 }
 
 class TstMainWindow : public QObject {
@@ -106,28 +95,23 @@ private slots:
         QVERIFY(w.windowTitle().contains("MyProject"));
 
         ExplorerWidget *ex = w.explorer();
-        const QModelIndex root = ex->view()->rootIndex();
-        QVERIFY(root.isValid());
-        QTRY_VERIFY(ex->model()->rowCount(root) >= 11);
-        const QStringList names = visibleNames(ex, root);
+        QTRY_VERIFY(ex->childNames(project()).size() >= 11);
+        const QStringList names = ex->childNames(project());
         for (const char *expected : {"src", "assets", "config", ".gitignore", ".env", ".editorconfig", "Dockerfile",
                                      "Makefile", "README.md", "CMakeLists.txt", ".config"})
             QVERIFY2(names.contains(expected), expected);
 
         // nested directory
-        const QModelIndex src = ex->model()->index(project() + "/src");
-        ex->view()->expand(src);
-        QTRY_COMPARE(ex->model()->rowCount(src), 2);
-        QVERIFY(visibleNames(ex, src).contains("main.cpp"));
+        ex->expandPath(project() + "/src");
+        QTRY_COMPARE(ex->childNames(project() + "/src").size(), 2);
+        QVERIFY(ex->childNames(project() + "/src").contains("main.cpp"));
 
         // deeply nested hidden entries (parents have to be expanded to be loaded)
-        const QModelIndex cfg = ex->model()->index(project() + "/.config");
-        ex->view()->expand(cfg);
-        QTRY_COMPARE(ex->model()->rowCount(cfg), 1);
-        const QModelIndex nested = ex->model()->index(project() + "/.config/nested");
-        ex->view()->expand(nested);
-        QTRY_COMPARE(ex->model()->rowCount(nested), 1);
-        QCOMPARE(visibleNames(ex, nested).first(), QString(".secret"));
+        ex->expandPath(project() + "/.config");
+        QTRY_COMPARE(ex->childNames(project() + "/.config").size(), 1);
+        ex->expandPath(project() + "/.config/nested");
+        QTRY_COMPARE(ex->childNames(project() + "/.config/nested").size(), 1);
+        QCOMPARE(ex->childNames(project() + "/.config/nested").first(), QString(".secret"));
     }
 
     void hiddenFilesCanBeToggled()
@@ -136,12 +120,12 @@ private slots:
         w.show();
         QVERIFY(w.openProject(project()));
         ExplorerWidget *ex = w.explorer();
-        QTRY_VERIFY(visibleNames(ex, ex->view()->rootIndex()).contains(".env"));
+        QTRY_VERIFY(ex->childNames(project()).contains(".env"));
         Settings::instance().setShowHiddenFiles(false);
-        QTRY_VERIFY(!visibleNames(ex, ex->view()->rootIndex()).contains(".env"));
-        QVERIFY(visibleNames(ex, ex->view()->rootIndex()).contains("Dockerfile")); // no extension != hidden
+        QTRY_VERIFY(!ex->childNames(project()).contains(".env"));
+        QVERIFY(ex->childNames(project()).contains("Dockerfile")); // no extension != hidden
         Settings::instance().setShowHiddenFiles(true);
-        QTRY_VERIFY(visibleNames(ex, ex->view()->rootIndex()).contains(".env"));
+        QTRY_VERIFY(ex->childNames(project()).contains(".env"));
     }
 
     void openEditAndSavePreservesEncodingAndLineEndings()

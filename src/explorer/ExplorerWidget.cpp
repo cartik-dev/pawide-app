@@ -1,6 +1,7 @@
 #include "ExplorerWidget.h"
 
 #include "explorer/FileOperations.h"
+#include "explorer/HiddenFilterProxy.h"
 #include "settings/Settings.h"
 #include "ui/Icons.h"
 #include "ui/Theme.h"
@@ -86,8 +87,10 @@ ExplorerWidget::ExplorerWidget(QWidget *parent) : QWidget(parent)
     // Tree page
     m_model = new QFileSystemModel(this);
     m_model->setReadOnly(false);
+    m_proxy = new HiddenFilterProxy(this);
+    m_proxy->setSourceModel(m_model);
     m_view = new QTreeView(m_stack);
-    m_view->setModel(m_model);
+    m_view->setModel(m_proxy);
     m_view->setHeaderHidden(true);
     m_view->setAnimated(true);
     m_view->setIndentation(16);
@@ -102,8 +105,9 @@ ExplorerWidget::ExplorerWidget(QWidget *parent) : QWidget(parent)
     m_stack->addWidget(m_view);
 
     connect(m_view, &QTreeView::doubleClicked, this, [this](const QModelIndex &idx) {
-        if (!m_model->isDir(idx))
-            emit openFileRequested(m_model->filePath(idx));
+        const QModelIndex src = m_proxy->mapToSource(idx);
+        if (!m_model->isDir(src))
+            emit openFileRequested(m_model->filePath(src));
     });
     connect(m_view, &QTreeView::customContextMenuRequested, this, &ExplorerWidget::showContextMenu);
 
@@ -117,7 +121,7 @@ ExplorerWidget::ExplorerWidget(QWidget *parent) : QWidget(parent)
     addShortcut(QKeySequence::Copy, [this] {
         QStringList paths;
         for (const QModelIndex &i : m_view->selectionModel()->selectedRows())
-            paths << m_model->filePath(i);
+            paths << m_model->filePath(m_proxy->mapToSource(i));
         copyEntries(paths);
     });
     addShortcut(QKeySequence::Paste, [this] { pasteInto(targetDirFor(pathAt(m_view->currentIndex()))); });
@@ -128,10 +132,11 @@ ExplorerWidget::ExplorerWidget(QWidget *parent) : QWidget(parent)
 
 void ExplorerWidget::applySettings()
 {
-    QDir::Filters f = QDir::AllEntries | QDir::NoDotAndDotDot | QDir::System;
-    if (Settings::instance().showHiddenFiles())
-        f |= QDir::Hidden;
-    m_model->setFilter(f);
+    // The source model always exposes hidden entries; whether they are
+    // visible is decided by HiddenFilterProxy (see its comment for why the
+    // QDir::Hidden filter alone is not enough on Windows).
+    m_model->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::System | QDir::Hidden);
+    m_proxy->setShowHidden(Settings::instance().showHiddenFiles());
 }
 
 void ExplorerWidget::setRootPath(const QString &path)
@@ -149,7 +154,7 @@ void ExplorerWidget::setRootPath(const QString &path)
     m_title->setToolTip(QDir::toNativeSeparators(m_root));
     applySettings();
     const QModelIndex rootIdx = m_model->setRootPath(m_root);
-    m_view->setRootIndex(rootIdx);
+    m_view->setRootIndex(m_proxy->mapFromSource(rootIdx));
     m_stack->setCurrentIndex(1);
 }
 
@@ -164,7 +169,26 @@ void ExplorerWidget::refresh()
 
 QString ExplorerWidget::pathAt(const QModelIndex &idx) const
 {
-    return idx.isValid() ? m_model->filePath(idx) : QString();
+    return idx.isValid() ? m_model->filePath(m_proxy->mapToSource(idx)) : QString();
+}
+
+QStringList ExplorerWidget::childNames(const QString &dir) const
+{
+    const QModelIndex src = m_model->index(QDir::cleanPath(dir));
+    if (!src.isValid())
+        return {};
+    const QModelIndex parent = m_proxy->mapFromSource(src);
+    QStringList names;
+    for (int i = 0; i < m_proxy->rowCount(parent); ++i)
+        names << m_proxy->index(i, 0, parent).data(QFileSystemModel::FileNameRole).toString();
+    return names;
+}
+
+void ExplorerWidget::expandPath(const QString &path)
+{
+    const QModelIndex src = m_model->index(QDir::cleanPath(path));
+    if (src.isValid())
+        m_view->expand(m_proxy->mapFromSource(src));
 }
 
 QString ExplorerWidget::targetDirFor(const QString &path) const
@@ -358,7 +382,7 @@ void ExplorerWidget::showContextMenu(const QPoint &pos)
             menu.addAction(tr("Open"), this, [this, path] { emit openFileRequested(path); });
         QStringList selected;
         for (const QModelIndex &i : m_view->selectionModel()->selectedRows())
-            selected << m_model->filePath(i);
+            selected << m_model->filePath(m_proxy->mapToSource(i));
         if (selected.isEmpty())
             selected << path;
         menu.addAction(tr("Copy"), this, [this, selected] { copyEntries(selected); });
