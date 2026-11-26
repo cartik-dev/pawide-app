@@ -29,7 +29,7 @@ Open source under the [MIT License](LICENSE). The Paw IDE name and the brand fil
 | Git integration: status, branch, stage / unstage, commit, `File > Clone Repository…` | done |
 | Auto updater: checks GitHub Releases on startup and via `Help > Check for Updates…` | done |
 | Plugins, SDK, marketplace – Phase 4 | not started |
-| Windows installer, release pipeline – Phase 6 | done – v1.0.0 released, CI builds `PawIDE-Setup-x64.exe` and publishes it to [GitHub Releases](https://github.com/cartik-dev/pawide-app/releases) |
+| Windows installer, release pipeline – Phase 6 | done – v1.1.0 released, CI builds `PawIDE-Setup-x64.exe` and publishes it to [GitHub Releases](https://github.com/cartik-dev/pawide-app/releases) |
 
 Side-bar pages for Run and Extensions are explicit placeholders.
 

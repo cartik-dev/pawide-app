@@ -1,3 +1,22 @@
+## Paw IDE 1.1.0
+
+The editor grows up: syntax highlighting, split view, search, terminal and Git arrive.
+
+### Added
+- Syntax highlighting for 30+ languages: keywords, strings, numbers, comments,
+  multi-line block comments / Python doc strings, preprocessor directives
+- Find & Replace in the editor (`Ctrl+F` / `Ctrl+H`) with match highlighting,
+  live match counter, Replace / Replace All
+- Split Editor (`Ctrl+\`) — a second pane with the same file; the find bar works in both panes
+- Project-wide search (side panel): Match Case / Whole Word, results grouped by file,
+  a click opens the file at the exact line
+- Integrated terminal (bottom panel, ``Ctrl+` ``): PowerShell on Windows with CMD fallback,
+  bash on other systems; starts lazily in the project folder
+- Source Control side panel: branch, changed files, stage / unstage, commit,
+  and `File > Clone Repository…`
+- Automatic update checks against GitHub Releases (silent on startup,
+  `Help > Check for Updates…` at any time)
+
 ## Paw IDE 1.0.0
 
 First public release of the Paw IDE desktop application for **Windows 10 / 11 (x64)**.
@@ -14,8 +33,7 @@ First public release of the Paw IDE desktop application for **Windows 10 / 11 (x
 - Settings stored in SQLite; unsaved changes are never dropped
 
 ### Not included yet
-Syntax highlighting, split editor, find and replace, project search, integrated terminal,
-Git integration, plugins and marketplace, automatic updates.
+Plugins and marketplace.
 
 ### Installing
 Download `PawIDE-Setup-x64.exe` and run it. The installer is **not code-signed**, so Windows
