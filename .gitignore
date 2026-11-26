@@ -1,0 +1,7 @@
+build/
+build-*/
+out/
+dist/
+installer/Output/
+CMakeUserPresets.json
+*.user

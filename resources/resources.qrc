@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="branding/paw-logo.svg">../assets/branding/paw-logo.svg</file>
+        <file alias="branding/paw-icon.svg">../assets/branding/paw-icon.svg</file>
+        <file alias="branding/paw-avatar.png">../assets/branding/paw-avatar.png</file>
+        <file alias="icons/close.svg">../assets/icons/ui/close.svg</file>
+        <file alias="icons/close-hover.svg">../assets/icons/ui/close-hover.svg</file>
+    </qresource>
+</RCC>
