@@ -6,6 +6,7 @@
 //   pawide_screenshot <out.png> suspect <folder> <file>          amber "not sure" state (before the 15 s check)
 //   pawide_screenshot <out.png> confirmed <folder> <file>        after 15 s: sandbox verdict card + Problems
 #include "core/AppContext.h"
+#include "core/PluginManager.h"
 #include "ui/CommandPalette.h"
 #include "ui/Icons.h"
 #include "ui/MainWindow.h"
@@ -30,6 +31,10 @@ int main(int argc, char *argv[])
     if (argc < 3)
         return 2;
     paw::setDatabasePath(QStringLiteral(":memory:"));
+    // Language packs under PAWIDE_PLUGINS_DIR are activated before the UI
+    // exists, so screenshots can capture a translated interface.
+    paw::PluginManager::instance().scan();
+    paw::PluginManager::instance().activate();
     paw::theme::apply(app);
     paw::MainWindow w;
     w.resize(1320, 820);

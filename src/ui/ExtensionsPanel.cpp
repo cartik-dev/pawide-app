@@ -1,17 +1,22 @@
 #include "ExtensionsPanel.h"
 
 #include "core/AppContext.h"
+#include "core/PluginManager.h"
 #include "database/Database.h"
 #include "ui/Icons.h"
 #include "ui/Theme.h"
 
+#include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace paw {
 
@@ -69,6 +74,22 @@ ExtensionsPanel::ExtensionsPanel(QWidget *parent) : QWidget(parent)
     m_list->setSpacing(6);
     layout->addWidget(m_list, 1);
 
+    auto *pluginsFolder = new QPushButton(tr("Open plugins folder"), this);
+    pluginsFolder->setCursor(Qt::PointingHandCursor);
+    pluginsFolder->setProperty("kind", QStringLiteral("quiet"));
+    connect(pluginsFolder, &QPushButton::clicked, this, [] {
+        PluginManager::instance().scan();
+        QDesktopServices::openUrl(QUrl::fromLocalFile(PluginManager::instance().pluginsDir()));
+    });
+    layout->addWidget(pluginsFolder);
+
+    auto *official = new QLabel(tr("Official plugins: <a href='https://github.com/cartik-dev'>github.com/cartik-dev</a>"), this);
+    official->setObjectName(QStringLiteral("muted"));
+    official->setTextFormat(Qt::RichText);
+    official->setOpenExternalLinks(true);
+    official->setWordWrap(true);
+    layout->addWidget(official);
+
     const QStringList saved = appDatabase().value(QStringLiteral("extensions.installed")).toStringList();
     m_installed = saved;
 
@@ -83,6 +104,7 @@ void ExtensionsPanel::rebuildList(const QString &filter)
 {
     if (m_catalog.isEmpty())
         m_catalog = defaultCatalog();
+    PluginManager::instance().scan();
 
     m_list->clear();
     int shown = 0;
@@ -92,7 +114,11 @@ void ExtensionsPanel::rebuildList(const QString &filter)
             && !p.description.contains(needle, Qt::CaseInsensitive) && !p.author.contains(needle, Qt::CaseInsensitive))
             continue;
         ++shown;
-        const bool installed = m_installed.contains(p.id);
+        // Installed = marked in the database, or found on disk by the runtime.
+        const bool onDisk = std::any_of(PluginManager::instance().plugins().cbegin(),
+                                        PluginManager::instance().plugins().cend(),
+                                        [&](const paw::PluginInfo &d) { return d.id == p.id; });
+        const bool installed = onDisk || m_installed.contains(p.id);
         auto *item = new QListWidgetItem(m_list);
         item->setData(Qt::UserRole, p.id);
         item->setSizeHint(QSize(0, installed ? 78 : 92));
@@ -103,8 +129,12 @@ void ExtensionsPanel::rebuildList(const QString &filter)
         rowLayout->setSpacing(4);
 
         auto *head = new QHBoxLayout;
-        auto *name = new QLabel(QStringLiteral("<b>%1</b> <span style='color:%2'>v%3 · %4</span>")
-                                    .arg(p.name, theme::textMuted.name(), p.version, p.author), row);
+        const QString status = installed ? QStringLiteral("<span style='color:%1'>· %2</span>")
+                                               .arg(theme::accentLight.name(),
+                                                    onDisk ? tr("active") : tr("installed"))
+                                         : QString();
+        auto *name = new QLabel(QStringLiteral("<b>%1</b> <span style='color:%2'>v%3 · %4</span> %5")
+                                    .arg(p.name, theme::textMuted.name(), p.version, p.author, status), row);
         name->setTextFormat(Qt::RichText);
         head->addWidget(name);
         head->addStretch(1);
@@ -131,7 +161,11 @@ void ExtensionsPanel::rebuildList(const QString &filter)
         }
         m_list->setItemWidget(item, row);
     }
-    m_summary->setText(tr("%1 plugins · %2 installed").arg(m_catalog.size()).arg(m_installed.size()));
+    int installedCount = m_installed.size();
+    for (const paw::PluginInfo &d : PluginManager::instance().plugins())
+        if (!m_installed.contains(d.id))
+            ++installedCount;
+    m_summary->setText(tr("%1 plugins · %2 installed").arg(m_catalog.size()).arg(installedCount));
     if (shown == 0) {
         auto *empty = new QListWidgetItem(tr("No plugins match your search."), m_list);
         empty->setFlags(Qt::NoItemFlags);

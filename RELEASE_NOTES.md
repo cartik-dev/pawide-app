@@ -1,12 +1,27 @@
 ## Paw IDE 1.2.0
 
 The IDE starts to run your code, grows a plugin catalog, and double-checks itself.
+And the first official plugin exists: a full Russian translation of the
+interface, plus the plugin runtime it needs.
 
+### Added
+- **Plugin runtime (phase 1)**: the IDE now scans `%APPDATA%\Paw\PawIDE\plugins`
+  (and `<install>\plugins` for portable setups) for folders with a
+  `plugin.json` manifest and activates the plugin types it understands —
+  today, language packs (`type: "language-pack"`, a compiled Qt translation
+  `.qm` installed before any window is created).
+- The plugin catalog detects plugins installed on disk and marks them
+  *active*, and gained an **Open plugins folder** shortcut plus a link to the
+  official plugin repositories.
+- **Official plugin: Language Pack — Русский** (`cartik-dev/pawide-langpack-ru`)
+  translates every menu, dialog, panel, message and status-bar label of the IDE
+  into Russian. Drop the plugin folder into the plugins directory and restart.
+
+## Paw IDE 1.1.0
 ### Added
 - **Plugin catalog** (`Extensions` side view, `Ctrl+Shift+X`): searchable offline
   catalog of 10 plugins with authors and versions, one-click install, installed
-  state persisted in the settings database. The plugin runtime itself lands in a
-  later phase.
+  state persisted in the settings database.
 - **Run & Debug workflows** (`Run and Debug` side view, `Ctrl+Shift+D`): named
   run configurations (Run / Debug / Task) executed in the project folder as a
   child process; output streams into the bottom `Output` tab; add, delete and

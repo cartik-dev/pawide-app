@@ -160,9 +160,9 @@ void RunPanel::rebuildList()
 {
     m_list->clear();
     for (const Workflow &wf : std::as_const(m_workflows)) {
-        const QString kind = wf.kind == Kind::Debug ? QStringLiteral("DEBUG")
-                            : wf.kind == Kind::Task ? QStringLiteral("TASK")
-                                                              : QStringLiteral("RUN");
+        const QString kind = wf.kind == Kind::Debug ? tr("DEBUG")
+                            : wf.kind == Kind::Task ? tr("TASK")
+                                                    : tr("RUN");
         auto *item = new QListWidgetItem(QStringLiteral("%1\n%2 · %3").arg(wf.name, kind, wf.command), m_list);
         item->setData(Qt::UserRole, static_cast<int>(wf.kind));
     }
