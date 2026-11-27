@@ -31,6 +31,12 @@ static const QHash<QString, QString> &shapes()
         {"refresh", "<path d='M20 11a8 8 0 1 0-2.3 5.7'/><path d='M20 4v7h-7'/>"},
         {"collapse", "<path d='M8 4l4 4 4-4M8 20l4-4 4 4M4 12h16'/>"},
         {"close", "<path d='M6 6l12 12M18 6L6 18'/>"},
+        {"play", "<path d='M7 4l13 8-13 8z'/>"},
+        {"bug", "<circle cx='12' cy='13' r='5'/><path d='M12 8V5M9.5 5.5L8 3.5M14.5 5.5L16 3.5M7 11H4M7 15H4.5M20 11h-3M19.5 15H17M9 13h.01M15 13h.01'/>"},
+        {"stop", "<rect x='6' y='6' width='12' height='12' rx='1.5'/>"},
+        {"plus", "<path d='M12 5v14M5 12h14'/>"},
+        {"check", "<path d='M4.5 12.5l5 5 10-11'/>"},
+        {"shield", "<path d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/><path d='M9 12l2 2 4-4'/>"},
     };
     return m;
 }

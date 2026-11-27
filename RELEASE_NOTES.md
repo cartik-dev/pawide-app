@@ -1,3 +1,33 @@
+## Paw IDE 1.2.0
+
+The IDE starts to run your code, grows a plugin catalog, and double-checks itself.
+
+### Added
+- **Plugin catalog** (`Extensions` side view, `Ctrl+Shift+X`): searchable offline
+  catalog of 10 plugins with authors and versions, one-click install, installed
+  state persisted in the settings database. The plugin runtime itself lands in a
+  later phase.
+- **Run & Debug workflows** (`Run and Debug` side view, `Ctrl+Shift+D`): named
+  run configurations (Run / Debug / Task) executed in the project folder as a
+  child process; output streams into the bottom `Output` tab; add, delete and
+  stop workflows; defaults are generated for CMake projects.
+- **Sandbox verification** — the editor no longer only guesses:
+  - patterns it is *certain* about (e.g. `if (x = 10)` — assignment used as a
+    condition) are flagged immediately with a red wavy underline;
+  - patterns it is *not sure* about (e.g. a declared variable that is never
+    used) get an amber underline and stay silent;
+  - if the user does not see or fix the suspicion for **15 seconds**, the editor
+    copies the current buffer into an **isolated temporary directory where
+    nothing is saved**, runs the configured compiler in syntax-check mode
+    (`-fsyntax-only -Wall -Wextra`, g++ / clang++), and deletes the directory
+    afterwards;
+  - verdict: confirmed suspicions turn into red "confirmed by sandbox" errors,
+    false alarms are cleared with a card in the corner; a card also reports the
+    running and sure-error states.
+
+### Changed
+- Problems tab is now a real list with live entries instead of a placeholder.
+
 ## Paw IDE 1.1.0
 
 The editor grows up: syntax highlighting, split view, search, terminal and Git arrive.

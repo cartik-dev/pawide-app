@@ -228,6 +228,7 @@ void CodeEditor::updateExtraSelections()
         sels.append(line);
     }
     sels.append(m_searchSels);
+    sels.append(m_issueSels);
     const int pos = textCursor().position();
     for (int p : {pos, pos - 1}) {
         const int m = matchingBracket(p);

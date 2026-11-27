@@ -2,6 +2,7 @@
 
 #include "core/AppContext.h"
 #include "core/AppInfo.h"
+#include "core/SandboxVerifier.h"
 #include "database/Database.h"
 #include "editor/CodeEditor.h"
 #include "editor/EditorArea.h"
@@ -13,10 +14,13 @@
 #include "terminal/TerminalPanel.h"
 #include "ui/ActivityBar.h"
 #include "ui/CommandPalette.h"
+#include "ui/ExtensionsPanel.h"
 #include "ui/Icons.h"
 #include "ui/NewProjectDialog.h"
+#include "ui/RunPanel.h"
 #include "ui/SettingsDialog.h"
 #include "ui/Theme.h"
+#include "ui/VerifyOverlay.h"
 #include "ui/WelcomeWidget.h"
 
 #include <QCloseEvent>
@@ -25,21 +29,28 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
+#include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QSet>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTextBlock>
+#include <QTextCharFormat>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace paw {
 
@@ -111,22 +122,10 @@ void MainWindow::buildUi()
     m_side->addWidget(m_search); // index 1
     m_git = new GitPanel(m_side);
     m_side->addWidget(m_git); // index 2
-    auto placeholder = [this](const QString &title, const QString &text) {
-        auto *w = new QWidget(m_side);
-        auto *l = new QVBoxLayout(w);
-        l->setContentsMargins(14, 12, 14, 12);
-        auto *t = new QLabel(title.toUpper(), w);
-        t->setStyleSheet(QStringLiteral("QLabel { font-weight: 600; letter-spacing: 1px; }"));
-        auto *m = new QLabel(text, w);
-        m->setObjectName(QStringLiteral("muted"));
-        m->setWordWrap(true);
-        l->addWidget(t);
-        l->addWidget(m);
-        l->addStretch(1);
-        m_side->addWidget(w);
-    };
-    placeholder(tr("Run and Debug"), tr("Running and debugging are not available yet."));
-    placeholder(tr("Extensions"), tr("The extension system and marketplace are not available yet. They are planned for a later development phase."));
+    m_run = new RunPanel(m_side);
+    m_side->addWidget(m_run); // index 3
+    m_extensions = new ExtensionsPanel(m_side);
+    m_side->addWidget(m_extensions); // index 4
 
     // Editor + welcome
     m_central = new QStackedWidget(root);
@@ -138,11 +137,19 @@ void MainWindow::buildUi()
     // Bottom panel
     m_bottom = new QTabWidget(root);
     m_bottom->setDocumentMode(true);
-    auto *problems = new QLabel(tr("No problems have been detected in the workspace."), m_bottom);
-    problems->setObjectName(QStringLiteral("muted"));
-    problems->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    problems->setMargin(12);
-    m_bottom->addTab(problems, tr("Problems"));
+    auto *problemsPage = new QWidget(m_bottom);
+    auto *problemsLayout = new QVBoxLayout(problemsPage);
+    problemsLayout->setContentsMargins(0, 0, 0, 0);
+    m_problemsEmpty = new QLabel(tr("No problems have been detected in the workspace."), problemsPage);
+    m_problemsEmpty->setObjectName(QStringLiteral("muted"));
+    m_problemsEmpty->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    m_problemsEmpty->setMargin(12);
+    problemsLayout->addWidget(m_problemsEmpty);
+    m_problems = new QListWidget(problemsPage);
+    m_problems->setFrameShape(QFrame::NoFrame);
+    m_problems->setSelectionMode(QAbstractItemView::NoSelection);
+    problemsLayout->addWidget(m_problems);
+    m_bottom->addTab(problemsPage, tr("Problems"));
     m_output = new QPlainTextEdit(m_bottom);
     m_output->setReadOnly(true);
     m_output->setMaximumBlockCount(5000);
@@ -181,6 +188,23 @@ void MainWindow::buildUi()
     statusBar()->addPermanentWidget(m_stLang);
 
     m_palette = new CommandPalette(this);
+
+    // Sandbox verification: card + verifier + debounced re-analysis of the focused editor
+    m_verify = new VerifyOverlay(m_central);
+    m_verifier = new SandboxVerifier(this);
+    m_analyzeTimer = new QTimer(this);
+    m_analyzeTimer->setSingleShot(true);
+    m_analyzeTimer->setInterval(700);
+    connect(m_analyzeTimer, &QTimer::timeout, this, &MainWindow::analyzeCurrentEditor);
+    connect(m_verifier, &SandboxVerifier::progress, this, [this](const QString &stage) {
+        m_sandboxRunning = true;
+        const auto first = std::find_if(m_issues.cbegin(), m_issues.cend(), [](const CodeIssue &i) {
+            return i.severity == CodeIssue::Severity::Suspect;
+        });
+        if (first != m_issues.cend())
+            m_verify->showRunning(first->message, first->line);
+        log(tr("Sandbox verify: %1").arg(stage));
+    });
 
     m_updater = new UpdateChecker(this);
     connect(m_updater, &UpdateChecker::updateAvailable, this, [this](const QString &v, const QString &url) {
@@ -244,6 +268,45 @@ void MainWindow::buildUi()
     });
     connect(m_editors, &EditorArea::anyModifiedChanged, this, &MainWindow::updateTitle);
     connect(m_editors, &EditorArea::message, this, [this](const QString &t, int ms) { statusBar()->showMessage(t, ms); });
+
+    // Run & Debug panel
+    connect(m_run, &RunPanel::logMessage, this, &MainWindow::log);
+    connect(m_run, &RunPanel::requestOutput, this, [this] {
+        m_bottom->show();
+        m_bottom->setCurrentWidget(m_output);
+        m_vsplit->setSizes({height() - 260, 220});
+    });
+    connect(m_run, &RunPanel::runStarted, this, [this](const QString &wf) {
+        statusBar()->showMessage(tr("Running workflow “%1”…").arg(wf), 4000);
+    });
+    connect(m_run, &RunPanel::runFinished, this, [this](bool ok) {
+        statusBar()->showMessage(ok ? tr("Workflow finished.") : tr("Workflow finished with a non-zero exit code."), 4000);
+    });
+
+    // Plugin catalog
+    connect(m_extensions, &ExtensionsPanel::logMessage, this, &MainWindow::log);
+
+    // Analysis triggers: editor switch or any text change re-arms the debounce
+    connect(m_editors, &EditorArea::currentEditorChanged, this, [this](CodeEditor *e) {
+        if (!e)
+            return;
+        if (!e->document()->property("pawAnalysisConnected").toBool()) {
+            e->document()->setProperty("pawAnalysisConnected", true);
+            // The property guard above makes this effectively unique per document.
+            connect(e->document(), &QTextDocument::contentsChange, this,
+                    [this](int, int, int) { armAnalysisTimer(); });
+        }
+        armAnalysisTimer(); // analyse right after the file is opened, too
+        updateStatus();
+        updateTitle();
+    });
+    connect(m_verifier, &SandboxVerifier::finished, this,
+            [this](const QList<paw::CompilerDiag> &diags, const QString &compiler) {
+                m_sandboxRunning = false;
+                onSandboxFinished(diags, compiler);
+            });
+
+    QTimer::singleShot(0, this, [this] { analyzeCurrentEditor(); });
 }
 
 QAction *MainWindow::addAction(QMenu *menu, const QString &text, const QKeySequence &shortcut, auto &&slot)
@@ -376,6 +439,7 @@ bool MainWindow::openProject(const QString &path)
     m_search->setRootPath(canonical);
     m_git->setRepository(canonical);
     m_terminal->setWorkingDirectory(canonical);
+    m_run->setProject(canonical);
     appDatabase().addRecentProject(canonical);
     m_central->setCurrentWidget(m_editors);
     showView(QStringLiteral("explorer"));
@@ -395,6 +459,7 @@ bool MainWindow::closeProject()
     m_explorer->setRootPath(QString());
     m_search->setRootPath(QString());
     m_git->setRepository(QString());
+    m_run->setProject(QString());
     m_central->setCurrentWidget(m_welcome);
     updateTitle();
     return true;
@@ -654,6 +719,208 @@ void MainWindow::showAbout()
     box.setText(tr("<b>Paw IDE</b> %1<br>Code without limits.<br><br><a href=\"%2\">%2</a>").arg(appVersion(), repositoryUrl()));
     box.setTextFormat(Qt::RichText);
     box.exec();
+}
+
+// ------------------------------------------------- sandbox verification flow
+//
+// The editor scans the focused file with cheap heuristics. Constructs it is
+// *certain* about are flagged right away ("sure error"). Constructs it is *not
+// sure* about are underlined in amber only; if the user does not touch or fix
+// them within 15 seconds, the editor copies the buffer into an isolated
+// temporary directory (nothing is saved anywhere), runs the compiler in
+// syntax-check mode there and reports the verdict.
+
+void MainWindow::armAnalysisTimer()
+{
+    m_analyzeTimer->start(); // debounce: re-analyse 700 ms after the last keystroke
+}
+
+static QTextEdit::ExtraSelection issueSelection(CodeEditor *e, const CodeIssue &issue, const QColor &color)
+{
+    QTextEdit::ExtraSelection s;
+    s.format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+    s.format.setUnderlineColor(color);
+    s.cursor = QTextCursor(e->document()->findBlockByNumber(qMax(0, issue.line - 1)));
+    s.cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, qMax(0, issue.column - 1));
+    s.cursor.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, qMax(1, issue.length));
+    return s;
+}
+
+void MainWindow::analyzeCurrentEditor()
+{
+    CodeEditor *e = m_editors->currentEditor();
+    cancelSuspectTimers();
+    m_issues.clear();
+    if (!e) {
+        refreshIssueUi();
+        return;
+    }
+    m_issues = SuspicionAnalyzer::analyze(e->toPlainText(), e->language().id);
+    refreshIssueUi();
+
+    // The editor is certain: show it immediately, no sandbox check is needed.
+    for (const CodeIssue &issue : std::as_const(m_issues)) {
+        if (issue.severity == CodeIssue::Severity::SureError) {
+            m_verify->showSureError(issue.message, issue.line);
+            m_verify->hideSoon(6000);
+            break;
+        }
+    }
+
+    bool hasSuspects = false;
+    for (const CodeIssue &issue : std::as_const(m_issues))
+        hasSuspects |= issue.severity == CodeIssue::Severity::Suspect;
+    if (!hasSuspects)
+        return;
+    if (SandboxVerifier::findCompiler().isEmpty())
+        return; // nothing to verify with — suspects stay amber only
+    for (const CodeIssue &issue : std::as_const(m_issues)) {
+        if (issue.severity != CodeIssue::Severity::Suspect)
+            continue;
+        auto *timer = new QTimer(this);
+        timer->setSingleShot(true);
+        connect(timer, &QTimer::timeout, this, [this] { verifySuspects(); });
+        m_suspectTimers.insert(issue.line, timer);
+        timer->start(15000); // the user has not seen / fixed it for 15 s
+    }
+}
+
+void MainWindow::refreshIssueUi()
+{
+    CodeEditor *e = m_editors->currentEditor();
+    QList<QTextEdit::ExtraSelection> sels;
+    QListWidget *list = m_problems;
+    list->clear();
+    int suspects = 0;
+    for (const CodeIssue &issue : std::as_const(m_issues)) {
+        const QColor color = issue.severity == CodeIssue::Severity::Suspect ? QColor(0xf0, 0xa3, 0x5e) : QColor(0xf8, 0x71, 0x71);
+        if (e)
+            sels.append(issueSelection(e, issue, color));
+        if (issue.severity == CodeIssue::Severity::Suspect)
+            ++suspects;
+        const QString tag = issue.severity == CodeIssue::Severity::Suspect ? tr("possible")
+                            : issue.severity == CodeIssue::Severity::Confirmed ? tr("confirmed by sandbox") : tr("error");
+        list->addItem(QStringLiteral("Line %1 · [%2] %3").arg(issue.line).arg(tag, issue.message));
+    }
+    if (e)
+        e->setIssueSelections(sels);
+    m_problemsEmpty->setVisible(m_issues.isEmpty());
+    m_problems->setVisible(!m_issues.isEmpty());
+}
+
+void MainWindow::cancelSuspectTimers()
+{
+    for (QTimer *t : std::as_const(m_suspectTimers))
+        t->stop();
+    m_suspectTimers.clear();
+}
+
+void MainWindow::verifySuspects()
+{
+    m_suspectTimers.clear(); // all pending checks run together in one pass
+    CodeEditor *e = m_editors->currentEditor();
+    if (!e || m_sandboxRunning)
+        return;
+    const QString lang = e->language().id;
+    if (lang != QLatin1String("cpp") && lang != QLatin1String("c")) {
+        statusBar()->showMessage(tr("Sandbox verification is available for C/C++ files."), 4000);
+        return;
+    }
+    if (SandboxVerifier::findCompiler().isEmpty()) {
+        statusBar()->showMessage(tr("No C/C++ compiler found — sandbox verification is unavailable."), 5000);
+        return;
+    }
+    m_sandboxRunning = true; // optimistic: progress() keeps it true
+    const CodeIssue first = [&] {
+        for (const CodeIssue &i : std::as_const(m_issues))
+            if (i.severity == CodeIssue::Severity::Suspect)
+                return i;
+        return CodeIssue{};
+    }();
+    m_verify->showRunning(first.message, first.line);
+    m_verify->hideSoon(15000);
+    if (!m_verifier->verify(e->toPlainText(), QFileInfo(e->filePath()).fileName(), lang))
+        m_sandboxRunning = false;
+    m_bottom->show();
+    m_bottom->setCurrentWidget(m_output);
+    m_vsplit->setSizes({height() - 260, 220});
+}
+
+void MainWindow::onSandboxFinished(const QList<CompilerDiag> &diags, const QString &compilerName)
+{
+    CodeEditor *e = m_editors->currentEditor();
+    if (!e)
+        return;
+
+    QString suspectMsg;
+    int suspectLine = 0;
+    for (const CodeIssue &i : std::as_const(m_issues)) {
+        if (i.severity == CodeIssue::Severity::Suspect) {
+            suspectMsg = i.message;
+            suspectLine = i.line;
+            break;
+        }
+    }
+
+    QSet<int> confirmedLines;
+    for (const CompilerDiag &d : diags)
+        if (d.line > 0 && !d.message.startsWith(QStringLiteral("unused parameter")))
+            confirmedLines.insert(d.line);
+
+    bool anyConfirmed = false;
+    bool anyFalseAlarm = false;
+    QList<CodeIssue> updated;
+    for (const CodeIssue &issue : std::as_const(m_issues)) {
+        if (issue.severity != CodeIssue::Severity::Suspect) {
+            updated.push_back(issue);
+            continue;
+        }
+        if (confirmedLines.contains(issue.line)) {
+            CodeIssue confirmed = issue;
+            confirmed.severity = CodeIssue::Severity::Confirmed;
+            updated.push_back(confirmed);
+            anyConfirmed = true;
+        } else {
+            anyFalseAlarm = true; // the compiler disagrees: remove the suspicion
+        }
+    }
+    // Extra diagnostics the heuristics missed are promoted to confirmed issues.
+    for (const CompilerDiag &d : diags) {
+        if (!confirmedLines.contains(d.line))
+            continue;
+        const bool alreadyListed = std::any_of(updated.cbegin(), updated.cend(),
+                                               [&](const CodeIssue &i) { return i.line == d.line; });
+        if (!alreadyListed) {
+            CodeIssue c;
+            c.line = d.line;
+            c.column = qMax(1, d.column);
+            c.length = 1;
+            c.message = d.message;
+            c.severity = CodeIssue::Severity::Confirmed;
+            updated.push_back(c);
+        }
+    }
+    m_issues = updated;
+    refreshIssueUi();
+    m_verify->hide();
+    if (anyConfirmed) {
+        const CodeIssue first = [&] {
+            for (const CodeIssue &i : std::as_const(m_issues))
+                if (i.severity == CodeIssue::Severity::Confirmed)
+                    return i;
+            return CodeIssue{};
+        }();
+        m_verify->showConfirmed(first.message, first.line,
+                                tr("checked by %1 in an isolated sandbox").arg(QFileInfo(compilerName).fileName()));
+        m_verify->hideSoon(9000);
+        log(tr("Sandbox verify: issue on line %1 confirmed by %2.").arg(first.line).arg(QFileInfo(compilerName).fileName()));
+    } else if (anyFalseAlarm) {
+        m_verify->showFalseAlarm(suspectMsg.isEmpty() ? tr("Possible issue cleared") : suspectMsg, suspectLine);
+        m_verify->hideSoon(6000);
+        log(tr("Sandbox verify: no problems found — suspicion removed."));
+    } else {
+        m_verify->hide();
+    }
 }
 
 // ---------------------------------------------------------------- persistence

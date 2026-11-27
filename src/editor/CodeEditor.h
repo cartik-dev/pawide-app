@@ -37,6 +37,10 @@ public:
     // Find & Replace support: the search bar paints its matches on top of the editor.
     void setSearchSelections(const QList<QTextEdit::ExtraSelection> &s) { m_searchSels = s; updateExtraSelections(); }
 
+    // Problems / sandbox verification: wavy underlines for sure errors (red)
+    // and "not sure" suspects (amber) painted by the editor itself.
+    void setIssueSelections(const QList<QTextEdit::ExtraSelection> &s) { m_issueSels = s; updateExtraSelections(); }
+
     int lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent *event);
 
@@ -64,6 +68,7 @@ private:
     LineNumberArea *m_lineArea;
     SyntaxHighlighter *m_highlighter = nullptr;
     QList<QTextEdit::ExtraSelection> m_searchSels;
+    QList<QTextEdit::ExtraSelection> m_issueSels;
     QString m_path;
     QString m_encoding = QStringLiteral("UTF-8");
     LineEnding m_eol = LineEnding::LF;

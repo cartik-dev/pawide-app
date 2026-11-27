@@ -1,13 +1,20 @@
 #pragma once
+#include "core/CodeIssue.h"
+#include "core/SandboxVerifier.h"
+
+#include <QHash>
+#include <QList>
 #include <QMainWindow>
 
 class QAction;
 class QLabel;
+class QListWidget;
 class QPlainTextEdit;
 class QProcess;
 class QSplitter;
 class QStackedWidget;
 class QTabWidget;
+class QTimer;
 
 namespace paw {
 
@@ -16,10 +23,14 @@ class CodeEditor;
 class CommandPalette;
 class EditorArea;
 class ExplorerWidget;
+class ExtensionsPanel;
 class GitPanel;
+class RunPanel;
+class SandboxVerifier;
 class SearchPanel;
 class TerminalPanel;
 class UpdateChecker;
+class VerifyOverlay;
 class WelcomeWidget;
 
 class MainWindow : public QMainWindow {
@@ -40,8 +51,10 @@ public:
     ExplorerWidget *explorer() const { return m_explorer; }
     WelcomeWidget *welcome() const { return m_welcome; }
     CommandPalette *palette() const { return m_palette; }
+    RunPanel *runPanel() const { return m_run; }
     QList<QAction *> allActions() const { return m_actions; }
     void log(const QString &line);
+    void showView(const QString &id);
 
 protected:
     void closeEvent(QCloseEvent *e) override;
@@ -50,7 +63,6 @@ private:
     void buildUi();
     void buildMenus();
     QAction *addAction(QMenu *menu, const QString &text, const QKeySequence &shortcut, auto &&slot);
-    void showView(const QString &id);
     void toggleSideBar();
     void togglePanel();
     void toggleTerminal();
@@ -71,6 +83,14 @@ private:
     void saveLayout();
     void restoreLayout();
 
+    // Sandbox verification ("the editor is not sure" flow)
+    void armAnalysisTimer();
+    void analyzeCurrentEditor();
+    void refreshIssueUi();
+    void cancelSuspectTimers();
+    void verifySuspects();
+    void onSandboxFinished(const QList<CompilerDiag> &diags, const QString &compilerName);
+
     QString m_project;
     ActivityBar *m_activity = nullptr;
     QStackedWidget *m_side = nullptr;
@@ -80,14 +100,24 @@ private:
     QSplitter *m_vsplit = nullptr;
     QTabWidget *m_bottom = nullptr;
     QPlainTextEdit *m_output = nullptr;
+    QListWidget *m_problems = nullptr;
+    QLabel *m_problemsEmpty = nullptr;
     ExplorerWidget *m_explorer = nullptr;
     SearchPanel *m_search = nullptr;
     GitPanel *m_git = nullptr;
+    RunPanel *m_run = nullptr;
+    ExtensionsPanel *m_extensions = nullptr;
     TerminalPanel *m_terminal = nullptr;
     EditorArea *m_editors = nullptr;
     WelcomeWidget *m_welcome = nullptr;
     CommandPalette *m_palette = nullptr;
     UpdateChecker *m_updater = nullptr;
+    VerifyOverlay *m_verify = nullptr;
+    SandboxVerifier *m_verifier = nullptr;
+    QTimer *m_analyzeTimer = nullptr;
+    QList<CodeIssue> m_issues;          // current findings for the focused editor
+    QHash<int, QTimer *> m_suspectTimers; // per suspect line; fires after 15 s untouched
+    bool m_sandboxRunning = false;
     QString m_pendingPath; // search-result navigation: open, then go to the line
     int m_pendingLine = 0;
     QLabel *m_stLang = nullptr, *m_stPos = nullptr, *m_stEnc = nullptr, *m_stEol = nullptr;
